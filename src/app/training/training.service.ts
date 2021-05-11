@@ -1,21 +1,32 @@
 import { Injectable, Output } from "@angular/core";
-import { Subject } from "rxjs";
+import { Subject, throwError } from "rxjs";
 import { Exercise } from "./exercise.model";
+import { AngularFirestore } from '@angular/fire/firestore';
+import { Observable, Subscription } from 'rxjs';
+import { UIService } from 'src/app/shared/ui.service';
+
 
 @Injectable()
 export class TrainingService{
-  private availableExercises: Exercise[] = [
-    { id: 'crunches', name: 'Crunches', duration: 30, calories: 8 },
-    { id: 'touch-toes', name: 'Touch Toes', duration: 180, calories: 15 },
-    { id: 'side-lunges', name: 'Side Lunges', duration: 120, calories: 18 },
-    { id: 'burpees', name: 'Burpees', duration: 60, calories: 8 }
-  ];
+  private fbSub : Subscription[] = [];
 
+  //observable to assign to database result
+  exercisesAsObservable:Observable<Exercise[]>;
+
+  private availableExercises: Exercise[] = [];
   private runningExercise: Exercise;
 
-  public exerciseChanged = new Subject<Exercise>()
+  //observable triggered when a single exercise changes, used to notify to training component
+  //if the training activity is in progress or not
+  public exerciseChanged = new Subject<Exercise>();
+  //observable triggered when exercises collection changes
+  public exercisesChanged = new Subject<Exercise[]>();
+  //observable to synchronize with finished exercises on the DB
+  finishedExercisesChanged = new Subject<Exercise[]>();
 
-  private exercises : Exercise[] = [];
+  constructor(
+    private readonly db:AngularFirestore,
+    private uIService : UIService ){}
 
   startExercise( selectedId:string){
     const selectedExercise = this.availableExercises.find( exercise => exercise.id === selectedId );
@@ -24,13 +35,13 @@ export class TrainingService{
   }
 
   completeExercise(){
-    this.exercises.push({...this.runningExercise, date:new Date(), state:"completed"});
-    this.runningExercise = null;
-    this.exerciseChanged.next(null);
+    this.addDataToDatabase({...this.runningExercise, date:new Date(), state:"completed"});
+      this.runningExercise = null;
+      this.exerciseChanged.next(null);
   }
 
   cancelExercise(progress:number){
-    this.exercises.push({
+    this.addDataToDatabase({
       ...this.runningExercise,
       date:new Date(),
       state:"cancelled",
@@ -40,15 +51,51 @@ export class TrainingService{
     this.exerciseChanged.next(null);
   }
 
-  getAvailableExericses(){
-    return this.availableExercises.slice();
+  fetchAvailableExercises(){
+    this.uIService.loadingStateChanged.next(true);
+    this.fbSub.push(
+      this.db.collection('availableExercises').valueChanges({idField:'id'})
+      .subscribe( (exercises : Exercise[]) => {
+        //assigns exercises to the local array
+        this.availableExercises = exercises;
+        //notifies to listeners that array has changed
+        this.exercisesChanged.next([...this.availableExercises]);
+        this.uIService.loadingStateChanged.next(false);
+        }
+      , error => {
+        this.uIService.loadingStateChanged.next(false);
+        this.uIService.showSnackbar('Fetching exercises failed! Please try again later' + error.message, null, 3000);
+        //to avoid to show a select without content calls the observable with null so the select will be emty but correc
+        this.exercisesChanged.next(null);
+      })
+    );
   }
 
   getRunningexercise():Exercise{
     return {...this.runningExercise};
   }
 
-  getCompletedOrCancelledExercises(){
-    return this.exercises.slice();
+  addDataToDatabase(exercise : Exercise ){
+    this.db.collection('finishedExercises').add(exercise);
+  }
+
+  fetchCompletedOrCancelledExercises(){
+    this.fbSub.push(
+      this.db.collection('finishedExercises').valueChanges()
+        .subscribe( ( finishedExercises : Exercise[] ) => {
+          this.finishedExercisesChanged.next( finishedExercises );
+      }, error => {
+        this.uIService.showSnackbar('Fetching completed / finished exercises failed! Please try again later' + error.message, null, 3000);
+      })
+    );
+  }
+
+  /**
+   * called by auth.service on logout
+   */
+  cancelSubscription(){
+    this.fbSub.forEach( sub => {
+      sub.unsubscribe();
+    });
   }
 }

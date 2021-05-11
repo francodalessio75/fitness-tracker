@@ -44,7 +44,8 @@
     labelPosition="before"
     ngModel name="agree"
     required>Agree to Terms and Conditions</mat-checkbox>
-    <button mat-raised-button color="primary" type="submit" [disabled]="signupForm.invalid">Submit</button>
+    <button *ngIf="!isLoading" mat-raised-button color="primary" type="submit" [disabled]="signupForm.invalid">Submit</button>
+    <mat-spinner *ngIf="isLoading"></mat-spinner>
   </form>
 </section>
 

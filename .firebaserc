@@ -1,0 +1,11 @@
+{
+  "targets": {
+    "ng-fitness-tracker-cfa7b": {
+      "hosting": {
+        "fitness-tracker": [
+          "ng-fitness-tracker-cfa7b"
+        ]
+      }
+    }
+  }
+}
